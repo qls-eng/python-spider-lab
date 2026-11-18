@@ -252,3 +252,68 @@ identical: True
 ### 【本轮判定】
 
 步骤 4 完成，行为零变更，回归验证通过。
+
+---
+
+## 第 5 轮（R8）　实验后补做：进阶挑战——动态渲染站点与两方案对比（2026-11-18）
+
+### 【背景说明】
+
+指导书进阶挑战要求"抓取一个动态渲染站点"并对"两种方案的复杂度、效率"做对比。前三轮与 R7 均为静态站场景，**该挑战在实验进行时未执行**。本轮为实验结束后补做，时间与性质如实记录，不修改 R7 及之前任何代码。
+
+### 【我的 Prompt】
+
+```
+进阶挑战：再抓一个动态渲染的站点，并把"两种方案"的复杂度和效率对比出来。
+
+约束：
+1. 不要动 fetcher.py 的静态站代码，新建文件做进阶；
+2. 两种方案抓出来的字段必须一致，能逐行比对；
+3. 不要换掉原来的实验站点，只在进阶部分用新站点；
+4. 跑不通的方案不要写成"通过"，要写清卡在哪。
+```
+
+### 【AI 输出】
+
+新建 `dynamic_crawler.py`，目标站改为 `http://quotes.toscrape.com/js/`，两方案共用父类请求层：
+
+- `DynamicQuoteCrawler(NewsCrawler)`：复用 UA 池、节流、超时重试，只替换解析层与 URL 模板；
+- 方案 B `crawl_inline()`：`extract_inline_data()` 定位 `var data = ` → `JSONDecoder().raw_decode()` → `normalize_inline()` 映射四字段；
+- 方案 A `crawl_render()`：`HeadlessBrowser` 类通过 CDP 驱动无头浏览器，`parse_rendered_html()` 用与静态页同一套选择器解析 `outerHTML`；
+- `compare()`：依次跑两方案，打印耗时、条数、依赖，并逐行比对四个字段。
+
+### 【运行 / 审查发现问题】
+
+1. **子类默认参数不生效**：`DynamicQuoteCrawler` 改了类属性 `DEFAULT_LIST_URL_TEMPLATE`，但首次运行仍抓 `books.toscrape`，随即报"未找到内嵌数据标记 var data"。根因是父类 `__init__` 的默认值在函数定义时已绑定，改子类属性无效。修正：在子类 `__init__` 里显式 `kwargs.setdefault("list_url_template", ...)`，并在代码注释中留坑位说明。
+2. **Selenium 不可用**：`webdriver.Edge()` 抛 `NoSuchDriverException`，Selenium Manager 下载 `msedgedriver` 失败。
+3. **Playwright 装不上**：清华镜像装 Selenium 成功，但 Playwright 轮子（约 40MB + 运行时）下载 5 分钟未完成，放弃。
+4. **`--dump-dom` 拿不到 DOM**：Edge 的 `--headless=old / --headless=new / --headless` 三种模式均退出码 0、stdout 为空。
+5. **首访超时**：改 CDP 后第 1 页等 `div.quote` 25 秒超时（首访要等 DNS / TLS / 外部 JS），第 2 页正常。修正：页面超时放到 45 秒，并对每页加一次重试。
+
+### 【迭代修改动作】
+
+1. 方案 A 改为 CDP 直连：浏览器 `--remote-debugging-port` + `websocket-client`，零驱动、零额外二进制；实测 1.42 秒启动、渲染出 10 张卡片。
+2. 首次对比（含首访超时失败）：
+
+```text
+方案              耗时(s)     条数      额外依赖
+B 内嵌数据反查        12.09     20      无
+A 无头浏览器渲染       46.94     10      websocket-client + 本机浏览器
+一致性核对：条数 B=20 / A=10 ... 有 10 行不一致
+```
+
+3. 放宽超时 + 每页重试后重跑：
+
+```text
+方案              耗时(s)     条数      额外依赖                              环境准备
+B 内嵌数据反查        5.00      20      无（仅 requests + BeautifulSoup）     无
+A 无头浏览器渲染       19.96     20      websocket-client + 本机浏览器          无需下载驱动；需本机已装 Edge/Chrome
+
+一致性核对：条数 B=20 / A=20，逐行字段（作者/正文/标签/页码）完全一致
+```
+
+4. 代码量统计：方案 B 53 行；方案 A 158 行（浏览器类 109 行 + 解析编排 49 行）。
+
+### 【本轮判定】
+
+进阶挑战完成：两方案均真实跑通，抓取结果逐行一致；方案 A 的实现路径与预期的 Selenium / Playwright 不同，原因已如实记录在 `docs/进阶_动态渲染方案对比.md` 的"为什么走 CDP"一节，未写成"按标准做法执行成功"。

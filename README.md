@@ -41,15 +41,18 @@ Books to Scrape 是公开的爬虫练习沙盒站点，页面全部为静态 HTM
 
 ```
 spider/
-├── fetcher.py                  # 爬虫主程序：NewsCrawler 类（请求 / 解析 / 持久化 / 编排）
-├── result.csv                  # 运行产物：抓取结果
+├── fetcher.py                  # 静态站爬虫：NewsCrawler 类（请求 / 解析 / 持久化 / 编排）
+├── dynamic_crawler.py          # 进阶：动态渲染站点抓取（内嵌数据反查 + 无头浏览器渲染两方案）
+├── result.csv                  # 运行产物：静态站抓取结果
+├── quotes.csv                  # 运行产物：动态站抓取结果
 ├── requirements.txt            # 依赖清单
 ├── README.md                   # 项目说明
 ├── .gitignore                  # 忽略虚拟环境与 IDE 配置
 └── docs/
     ├── 需求澄清清单.md          # 结构化 Prompt 与需求边界
     ├── 实验报告.md              # 实验报告（阶段实现、验证与限制）
-    ├── ai对话记录.md            # 分轮次 AI 协作过程记录（含步骤 4 重构轮次）
+    ├── 进阶_动态渲染方案对比.md  # 进阶挑战：动态站点两方案复杂度与效率对比
+    ├── ai对话记录.md            # 分轮次 AI 协作过程记录（含步骤 4 重构与进阶轮次）
     ├── 测试用例.md              # 功能与异常场景验证记录
     ├── 复盘.md                  # 人工审查点、风险识别与方案对比
     └── images/                  # 各阶段真实运行截图与产物截图
@@ -92,6 +95,24 @@ python fetcher.py --pages 5        # 抓 5 页
 python fetcher.py --out demo.csv   # 指定输出文件
 ```
 
+### 进阶：动态渲染站点
+
+`dynamic_crawler.py` 针对 JS 渲染站点 `http://quotes.toscrape.com/js/` 实现两种方案，抓取字段一致（`author,text,tags,page`）：
+
+```bash
+python dynamic_crawler.py --strategy inline --pages 2   # 方案 B 内嵌数据反查（只依赖 requests + bs4）
+python dynamic_crawler.py --strategy render --pages 2   # 方案 A 无头浏览器渲染（需本机 Edge/Chrome）
+python dynamic_crawler.py --compare --pages 2           # 两方案实测对比 + 一致性核对
+```
+
+方案 A 通过浏览器自带的 DevTools 协议（CDP）驱动无头浏览器，**不需要下载 chromedriver / msedgedriver**，只需额外安装 `websocket-client`：
+
+```bash
+pip install websocket-client
+```
+
+实测结果（2 页）：方案 B 5.00s / 20 条，方案 A 19.96s / 20 条，两者抓到的数据逐行完全一致。完整对比见 `docs/进阶_动态渲染方案对比.md`。
+
 预期输出：
 
 1. 每页打印前 3 条解析结果（书名、价格、星级、链接）
@@ -119,8 +140,8 @@ python fetcher.py --out demo.csv   # 指定输出文件
 
 ## 已知限制
 
-- 仅适用于静态 HTML 页面；Vue、React 等 JavaScript 渲染的页面，`requests` 拿到的是空壳 HTML，需改用浏览器自动化方案
+- `fetcher.py` 仅适用于静态 HTML 页面；Vue、React 等 JavaScript 渲染的页面，`requests` 拿到的是空壳 HTML（`dynamic_crawler.py` 用两种方案处理这类页面）
 - 解析逻辑依赖站点当前的 DOM 结构，目标站点改版会导致 CSS 选择器失效
-- 指导书的进阶挑战（动态渲染站点爬取、两种方案复杂度与效率对比）本次未实现，仅覆盖静态场景
+- 方案 A 依赖本机已安装 Edge / Chrome，且 CDP 时序对网络抖动敏感（已加每页一次重试）
 
-进阶方案与对比见 `docs/复盘.md`。
+进阶方案与对比见 `docs/进阶_动态渲染方案对比.md`，人工审查点见 `docs/复盘.md`。
